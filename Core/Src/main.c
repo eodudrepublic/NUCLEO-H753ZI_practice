@@ -23,7 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,12 +52,38 @@ Led_TypeDef current_led = LED_GREEN;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void UART_SendString(const char *str);
+const char* LED_Name(Led_TypeDef led);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* USART send string (&huart3) */
+void UART_SendString(const char *str)
+{
+  HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+}
 
+/* return led name */
+const char* LED_Name(Led_TypeDef led)
+{
+  if (led == LED_GREEN)
+  {
+    return "GREEN LED";
+  }
+  else if (led == LED_BLUE)
+  {
+    return "BLUE LED";
+  }
+  else if (led == LED_RED)
+  {
+    return "RED LED";
+  }
+  else
+  {
+    return "UNKNOWN LED";
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -91,7 +117,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  UART_SendString("Hello World!\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -108,8 +134,11 @@ int main(void)
   BSP_LED_Off(LED_GREEN);
   BSP_LED_Off(LED_BLUE);
   BSP_LED_Off(LED_RED);
-  BSP_LED_On(current_led);
 
+  /* Turn initial led on and send string */
+  BSP_LED_On(current_led);
+  UART_SendString(LED_Name(current_led));
+  UART_SendString(" is on!\r\n");
   /* USER CODE END BSP */
 
   /* Infinite loop */
@@ -123,8 +152,10 @@ int main(void)
       /* Update button state */
       BspButtonState = BUTTON_RELEASED;
 
-      /* Turn off current LED */
+      /* Turn off current LED and send string */
       BSP_LED_Off(current_led);
+      UART_SendString(LED_Name(current_led));
+      UART_SendString(" is off!\r\n");
 
       /* Change current_led: GREEN -> BLUE -> RED -> GREEN */
       if (current_led == LED_GREEN)
@@ -140,8 +171,10 @@ int main(void)
       	current_led = LED_GREEN;
       }
 
-      /* Turn on current_led */
+      /* Turn on current_led and send string */
       BSP_LED_On(current_led);
+      UART_SendString(LED_Name(current_led));
+      UART_SendString(" is on!\r\n");
     }
     /* USER CODE END WHILE */
 
