@@ -46,7 +46,7 @@
 __IO uint32_t BspButtonState = BUTTON_RELEASED;
 
 /* USER CODE BEGIN PV */
-
+Led_TypeDef current_led = LED_GREEN;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,9 +105,10 @@ int main(void)
   /* USER CODE BEGIN BSP */
 
   /* -- Sample board code to switch on leds ---- */
-  BSP_LED_On(LED_GREEN);
-  BSP_LED_On(LED_BLUE);
-  BSP_LED_On(LED_RED);
+  BSP_LED_Off(LED_GREEN);
+  BSP_LED_Off(LED_BLUE);
+  BSP_LED_Off(LED_RED);
+  BSP_LED_On(current_led);
 
   /* USER CODE END BSP */
 
@@ -121,12 +122,26 @@ int main(void)
     {
       /* Update button state */
       BspButtonState = BUTTON_RELEASED;
-      /* -- Sample board code to toggle leds ---- */
-      BSP_LED_Toggle(LED_GREEN);
-      BSP_LED_Toggle(LED_BLUE);
-      BSP_LED_Toggle(LED_RED);
 
-      /* ..... Perform your action ..... */
+      /* Turn off current LED */
+      BSP_LED_Off(current_led);
+
+      /* Change current_led: GREEN -> BLUE -> RED -> GREEN */
+      if (current_led == LED_GREEN)
+      {
+		current_led = LED_BLUE;
+      }
+      	else if (current_led == LED_BLUE)
+      {
+		current_led = LED_RED;
+      }
+      	else
+      {
+      	current_led = LED_GREEN;
+      }
+
+      /* Turn on current_led */
+      BSP_LED_On(current_led);
     }
     /* USER CODE END WHILE */
 
