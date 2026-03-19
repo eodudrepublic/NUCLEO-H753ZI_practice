@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "spi.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -28,12 +29,37 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct
+{
+  int16_t ax;
+  int16_t ay;
+  int16_t az;
+  int16_t gx;
+  int16_t gy;
+  int16_t gz;
+} ICM20948_Raw_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define IMU_PRINT_PERIOD_MS         200U
 
+#define IMU_CS_PORT                 GPIOA
+#define IMU_CS_PIN                  GPIO_PIN_4
+
+/* USER BANK 0 */
+#define ICM20948_WHO_AM_I           0x00
+#define ICM20948_PWR_MGMT_1         0x06
+#define ICM20948_PWR_MGMT_2         0x07
+#define ICM20948_ACCEL_XOUT_H       0x2D
+#define ICM20948_REG_BANK_SEL       0x7F
+
+/* USER BANK 2 */
+#define ICM20948_GYRO_SMPLRT_DIV    0x00
+#define ICM20948_GYRO_CONFIG_1      0x01
+#define ICM20948_ACCEL_SMPLRT_DIV_1 0x10
+#define ICM20948_ACCEL_SMPLRT_DIV_2 0x11
+#define ICM20948_ACCEL_CONFIG       0x14
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,43 +72,222 @@
 __IO uint32_t BspButtonState = BUTTON_RELEASED;
 
 /* USER CODE BEGIN PV */
-Led_TypeDef current_led = LED_GREEN;
+uint32_t imu_prev_tick = 0U;
+uint8_t imu_ok = 0U;
+ICM20948_Raw_t imu_raw;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 /* USER CODE BEGIN PFP */
 void UART_SendString(const char *str);
-const char* LED_Name(Led_TypeDef led);
+
+static void UART_SendChar(char c);
+static void UART_SendInt(int32_t value);
+
+static void IMU_CS_Low(void);
+static void IMU_CS_High(void);
+
+static void ICM20948_WriteReg(uint8_t reg, uint8_t value);
+static uint8_t ICM20948_ReadReg(uint8_t reg);
+static void ICM20948_ReadRegs(uint8_t reg, uint8_t *buf, uint8_t len);
+static void ICM20948_SelectBank(uint8_t bank);
+static uint8_t ICM20948_Init_Minimal(void);
+static uint8_t ICM20948_Config_Basic(void);
+static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw);
+static void UART_SendIMU_Raw(const ICM20948_Raw_t *raw);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* USART send string (&huart3) */
 void UART_SendString(const char *str)
 {
-  HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+  HAL_UART_Transmit(&huart3, (uint8_t *)str, (uint16_t)strlen(str), HAL_MAX_DELAY);
 }
 
-/* return led name */
-const char* LED_Name(Led_TypeDef led)
+static void UART_SendChar(char c)
 {
-  if (led == LED_GREEN)
+  HAL_UART_Transmit(&huart3, (uint8_t *)&c, 1U, HAL_MAX_DELAY);
+}
+
+static void UART_SendInt(int32_t value)
+{
+  char buf[12];
+  uint32_t i = 0U;
+  uint32_t mag;
+
+  if (value < 0)
   {
-    return "GREEN LED";
-  }
-  else if (led == LED_BLUE)
-  {
-    return "BLUE LED";
-  }
-  else if (led == LED_RED)
-  {
-    return "RED LED";
+    UART_SendChar('-');
+    mag = (uint32_t)(-value);
   }
   else
   {
-    return "UNKNOWN LED";
+    mag = (uint32_t)value;
   }
+
+  do
+  {
+    buf[i++] = (char)('0' + (mag % 10U));
+    mag /= 10U;
+  } while (mag > 0U);
+
+  while (i > 0U)
+  {
+    UART_SendChar(buf[--i]);
+  }
+}
+
+static void IMU_CS_Low(void)
+{
+  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_RESET);
+}
+
+static void IMU_CS_High(void)
+{
+  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
+}
+
+static void ICM20948_WriteReg(uint8_t reg, uint8_t value)
+{
+  uint8_t tx[2];
+
+  tx[0] = reg & 0x7FU;
+  tx[1] = value;
+
+  IMU_CS_Low();
+  HAL_SPI_Transmit(&hspi1, tx, 2U, HAL_MAX_DELAY);
+  IMU_CS_High();
+}
+
+static uint8_t ICM20948_ReadReg(uint8_t reg)
+{
+  uint8_t tx[2];
+  uint8_t rx[2];
+
+  tx[0] = reg | 0x80U;
+  tx[1] = 0xFFU;
+
+  rx[0] = 0U;
+  rx[1] = 0U;
+
+  IMU_CS_Low();
+  HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2U, HAL_MAX_DELAY);
+  IMU_CS_High();
+
+  return rx[1];
+}
+
+static void ICM20948_ReadRegs(uint8_t reg, uint8_t *buf, uint8_t len)
+{
+  uint8_t addr;
+  uint8_t tx_dummy = 0xFFU;
+  uint8_t i;
+
+  addr = reg | 0x80U;
+
+  IMU_CS_Low();
+  HAL_SPI_Transmit(&hspi1, &addr, 1U, HAL_MAX_DELAY);
+
+  for (i = 0U; i < len; i++)
+  {
+    HAL_SPI_TransmitReceive(&hspi1, &tx_dummy, &buf[i], 1U, HAL_MAX_DELAY);
+  }
+
+  IMU_CS_High();
+}
+
+static void ICM20948_SelectBank(uint8_t bank)
+{
+  ICM20948_WriteReg(ICM20948_REG_BANK_SEL, (uint8_t)(bank << 4));
+}
+
+static uint8_t ICM20948_Init_Minimal(void)
+{
+  uint8_t who_am_i;
+
+  IMU_CS_High();
+  HAL_Delay(100);
+
+  /* 1) 먼저 통신 확인 */
+  who_am_i = ICM20948_ReadReg(ICM20948_WHO_AM_I);
+
+  UART_SendString("WHO_AM_I=");
+  UART_SendInt((int32_t)who_am_i);
+  UART_SendString("\r\n");
+
+  if (who_am_i != 0xEAU)
+  {
+    return 0U;
+  }
+
+  /* 2) Bank 0에서 sleep 해제 */
+  ICM20948_SelectBank(0U);
+
+  /* CLKSEL=1, SLEEP=0 */
+  ICM20948_WriteReg(ICM20948_PWR_MGMT_1, 0x01U);
+
+  /* accel/gyro all enabled */
+  ICM20948_WriteReg(ICM20948_PWR_MGMT_2, 0x00U);
+
+  /* sleep에서 깬 뒤 센서 안정화 대기 */
+  HAL_Delay(20);
+
+  return 1U;
+}
+
+static uint8_t ICM20948_Config_Basic(void)
+{
+  ICM20948_SelectBank(2U);
+
+  /* Gyro: low range, DLPF enabled */
+  ICM20948_WriteReg(ICM20948_GYRO_SMPLRT_DIV, 10U);
+  ICM20948_WriteReg(ICM20948_GYRO_CONFIG_1, 0x01U);
+
+  /* Accel: low range, DLPF enabled */
+  ICM20948_WriteReg(ICM20948_ACCEL_SMPLRT_DIV_1, 0x00U);
+  ICM20948_WriteReg(ICM20948_ACCEL_SMPLRT_DIV_2, 10U);
+  ICM20948_WriteReg(ICM20948_ACCEL_CONFIG, 0x01U);
+
+  ICM20948_SelectBank(0U);
+
+  return 1U;
+}
+
+static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw)
+{
+  uint8_t buf[12];
+
+  ICM20948_SelectBank(0U);
+  ICM20948_ReadRegs(ICM20948_ACCEL_XOUT_H, buf, 12U);
+
+  raw->ax = (int16_t)(((uint16_t)buf[0]  << 8) | buf[1]);
+  raw->ay = (int16_t)(((uint16_t)buf[2]  << 8) | buf[3]);
+  raw->az = (int16_t)(((uint16_t)buf[4]  << 8) | buf[5]);
+  raw->gx = (int16_t)(((uint16_t)buf[6]  << 8) | buf[7]);
+  raw->gy = (int16_t)(((uint16_t)buf[8]  << 8) | buf[9]);
+  raw->gz = (int16_t)(((uint16_t)buf[10] << 8) | buf[11]);
+
+  return 1U;
+}
+
+static void UART_SendIMU_Raw(const ICM20948_Raw_t *raw)
+{
+  UART_SendString("ACC_RAW x=");
+  UART_SendInt(raw->ax);
+  UART_SendString(" y=");
+  UART_SendInt(raw->ay);
+  UART_SendString(" z=");
+  UART_SendInt(raw->az);
+
+  UART_SendString(" | GYRO_RAW x=");
+  UART_SendInt(raw->gx);
+  UART_SendString(" y=");
+  UART_SendInt(raw->gy);
+  UART_SendString(" z=");
+  UART_SendInt(raw->gz);
+  UART_SendString("\r\n");
 }
 /* USER CODE END 0 */
 
@@ -109,6 +314,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -116,8 +324,26 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART3_UART_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
   UART_SendString("Hello World!\r\n");
+  UART_SendString("ICM-20948 init start...\r\n");
+
+  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
+  HAL_Delay(10);
+
+  imu_ok = ICM20948_Init_Minimal();
+  if (imu_ok == 1U)
+  {
+    UART_SendString("ICM-20948 init OK\r\n");
+    ICM20948_Config_Basic();
+  }
+  else
+  {
+    UART_SendString("ICM-20948 init FAIL\r\n");
+  }
+
+  imu_prev_tick = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -131,14 +357,10 @@ int main(void)
   /* USER CODE BEGIN BSP */
 
   /* -- Sample board code to switch on leds ---- */
-  BSP_LED_Off(LED_GREEN);
-  BSP_LED_Off(LED_BLUE);
-  BSP_LED_Off(LED_RED);
+  BSP_LED_On(LED_GREEN);
+  BSP_LED_On(LED_BLUE);
+  BSP_LED_On(LED_RED);
 
-  /* Turn initial led on and send string */
-  BSP_LED_On(current_led);
-  UART_SendString(LED_Name(current_led));
-  UART_SendString(" is on!\r\n");
   /* USER CODE END BSP */
 
   /* Infinite loop */
@@ -151,35 +373,25 @@ int main(void)
     {
       /* Update button state */
       BspButtonState = BUTTON_RELEASED;
-
-      /* Turn off current LED and send string */
-      BSP_LED_Off(current_led);
-      UART_SendString(LED_Name(current_led));
-      UART_SendString(" is off!\r\n");
-
-      /* Change current_led: GREEN -> BLUE -> RED -> GREEN */
-      if (current_led == LED_GREEN)
-      {
-		current_led = LED_BLUE;
-      }
-      	else if (current_led == LED_BLUE)
-      {
-		current_led = LED_RED;
-      }
-      	else
-      {
-      	current_led = LED_GREEN;
-      }
-
-      /* Turn on current_led and send string */
-      BSP_LED_On(current_led);
-      UART_SendString(LED_Name(current_led));
-      UART_SendString(" is on!\r\n");
+      /* -- Sample board code to toggle leds ---- */
+      BSP_LED_Toggle(LED_GREEN);
+      BSP_LED_Toggle(LED_BLUE);
+      BSP_LED_Toggle(LED_RED);
     }
-    /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+    if ((imu_ok == 1U) && ((HAL_GetTick() - imu_prev_tick) >= IMU_PRINT_PERIOD_MS))
+	{
+	  imu_prev_tick = HAL_GetTick();
+
+	  if (ICM20948_ReadRaw(&imu_raw) == 1U)
+	  {
+		UART_SendIMU_Raw(&imu_raw);
+	  }
+	}
+    /* USER CODE END WHILE */
   }
+  /* USER CODE BEGIN 3 */
+
   /* USER CODE END 3 */
 }
 
@@ -228,6 +440,24 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_CKPER;
+  PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
