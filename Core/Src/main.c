@@ -210,28 +210,30 @@ static uint8_t ICM20948_Init_Minimal(void)
   IMU_CS_High();
   HAL_Delay(100);
 
-  /* 1) 먼저 통신 확인 */
+  /* 1) First, verify communication */
   who_am_i = ICM20948_ReadReg(ICM20948_WHO_AM_I);
 
+  /*
   UART_SendString("WHO_AM_I=");
   UART_SendInt((int32_t)who_am_i);
   UART_SendString("\r\n");
+  */
 
   if (who_am_i != 0xEAU)
   {
     return 0U;
   }
 
-  /* 2) Bank 0에서 sleep 해제 */
+  /* 2) Release sleep mode in Bank 0 */
   ICM20948_SelectBank(0U);
 
   /* CLKSEL=1, SLEEP=0 */
   ICM20948_WriteReg(ICM20948_PWR_MGMT_1, 0x01U);
 
-  /* accel/gyro all enabled */
+  /* Enable all accel/gyro axes */
   ICM20948_WriteReg(ICM20948_PWR_MGMT_2, 0x00U);
 
-  /* sleep에서 깬 뒤 센서 안정화 대기 */
+  /* Wait for sensor stabilization after waking up from sleep */
   HAL_Delay(20);
 
   return 1U;
@@ -326,26 +328,6 @@ int main(void)
   MX_USART3_UART_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-  UART_SendString("Hello World!\r\n");
-  UART_SendString("ICM-20948 init start...\r\n");
-
-  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
-  HAL_Delay(10);
-
-  imu_ok = ICM20948_Init_Minimal();
-  if (imu_ok == 1U)
-  {
-    UART_SendString("ICM-20948 init OK\r\n");
-    ICM20948_Config_Basic();
-  }
-  else
-  {
-    UART_SendString("ICM-20948 init FAIL\r\n");
-  }
-
-  imu_prev_tick = HAL_GetTick();
-  /* USER CODE END 2 */
-
   /* Initialize leds */
   BSP_LED_Init(LED_GREEN);
   BSP_LED_Init(LED_BLUE);
@@ -354,12 +336,36 @@ int main(void)
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
-  /* USER CODE BEGIN BSP */
-
   /* -- Sample board code to switch on leds ---- */
   BSP_LED_On(LED_GREEN);
   BSP_LED_On(LED_BLUE);
   BSP_LED_On(LED_RED);
+
+  // UART_SendString("Hello World!\r\n");
+  UART_SendString("ICM-20948 init start...\r\n");
+
+  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
+  HAL_Delay(10);
+
+  imu_ok = ICM20948_Init_Minimal();
+  if (imu_ok == 1U)
+  {
+    UART_SendString("ICM-20948 init SUCCESS\r\n");
+    ICM20948_Config_Basic();
+  }
+  else
+  {
+    UART_SendString("ICM-20948 init FAIL\r\n");
+  }
+
+  imu_prev_tick = HAL_GetTick();
+
+  BSP_LED_Toggle(LED_GREEN);
+  BSP_LED_Toggle(LED_BLUE);
+  BSP_LED_Toggle(LED_RED);
+  /* USER CODE END 2 */
+
+  /* USER CODE BEGIN BSP */
 
   /* USER CODE END BSP */
 
@@ -367,25 +373,35 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+//    /* -- Sample board code for User push-button in interrupt mode ---- */
+//    if (BspButtonState == BUTTON_PRESSED)
+//    {
+//      /* Update button state */
+//      BspButtonState = BUTTON_RELEASED;
+//      /* -- Sample board code to toggle leds ---- */
+//      BSP_LED_Toggle(LED_GREEN);
+//      BSP_LED_Toggle(LED_BLUE);
+//      BSP_LED_Toggle(LED_RED);
+//    }
 
-    /* -- Sample board code for User push-button in interrupt mode ---- */
-    if (BspButtonState == BUTTON_PRESSED)
-    {
-      /* Update button state */
-      BspButtonState = BUTTON_RELEASED;
-      /* -- Sample board code to toggle leds ---- */
-      BSP_LED_Toggle(LED_GREEN);
-      BSP_LED_Toggle(LED_BLUE);
-      BSP_LED_Toggle(LED_RED);
-    }
-
+	// TODO: Press button -> data collect start for n seconds
     if ((imu_ok == 1U) && ((HAL_GetTick() - imu_prev_tick) >= IMU_PRINT_PERIOD_MS))
 	{
 	  imu_prev_tick = HAL_GetTick();
 
 	  if (ICM20948_ReadRaw(&imu_raw) == 1U)
 	  {
+		BSP_LED_Toggle(LED_GREEN);
 		UART_SendIMU_Raw(&imu_raw);
+		HAL_Delay(100);
+		BSP_LED_Toggle(LED_GREEN);
+	  }
+	  // TODO: Incorrect IMU data -> Toggle RED LED
+	  else
+	  {
+		BSP_LED_Toggle(LED_RED);
+		HAL_Delay(100);
+		BSP_LED_Toggle(LED_RED);
 	  }
 	}
     /* USER CODE END WHILE */
