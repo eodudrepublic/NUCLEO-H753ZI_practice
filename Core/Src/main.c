@@ -42,7 +42,8 @@ typedef struct
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IMU_PRINT_PERIOD_MS         200U
+#define IMU_SAMPLE_PERIOD_MS        100U
+#define IMU_SAMPLE_COUNT            20U
 
 #define IMU_CS_PORT                 GPIOA
 #define IMU_CS_PIN                  GPIO_PIN_4
@@ -72,8 +73,10 @@ typedef struct
 __IO uint32_t BspButtonState = BUTTON_RELEASED;
 
 /* USER CODE BEGIN PV */
-uint32_t imu_prev_tick = 0U;
 uint8_t imu_ok = 0U;
+uint8_t imu_collecting = 0U;
+uint32_t imu_sample_tick = 0U;
+uint32_t imu_sample_idx = 0U;
 ICM20948_Raw_t imu_raw;
 /* USER CODE END PV */
 
@@ -96,7 +99,9 @@ static void ICM20948_SelectBank(uint8_t bank);
 static uint8_t ICM20948_Init_Minimal(void);
 static uint8_t ICM20948_Config_Basic(void);
 static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw);
-static void UART_SendIMU_Raw(const ICM20948_Raw_t *raw);
+static void UART_SendIMU_DATA(uint32_t sample_idx, const ICM20948_Raw_t *raw);
+static void UART_SendINFO(const char *str);
+static void UART_SendERROR(const char *str);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -274,22 +279,38 @@ static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw)
   return 1U;
 }
 
-static void UART_SendIMU_Raw(const ICM20948_Raw_t *raw)
+static void UART_SendIMU_DATA(uint32_t sample_idx, const ICM20948_Raw_t *raw)
 {
-  UART_SendString("ACC_RAW x=");
+  UART_SendString("DATA, ");
+  UART_SendInt((int32_t)sample_idx);
+  UART_SendString(", ");
   UART_SendInt(raw->ax);
-  UART_SendString(" y=");
+  UART_SendString(", ");
   UART_SendInt(raw->ay);
-  UART_SendString(" z=");
+  UART_SendString(", ");
   UART_SendInt(raw->az);
 
-  UART_SendString(" | GYRO_RAW x=");
+  UART_SendString(", ");
   UART_SendInt(raw->gx);
-  UART_SendString(" y=");
+  UART_SendString(", ");
   UART_SendInt(raw->gy);
-  UART_SendString(" z=");
+  UART_SendString(", ");
   UART_SendInt(raw->gz);
   UART_SendString("\r\n");
+}
+
+static void UART_SendINFO(const char *str)
+{
+	UART_SendString("INFO, ");
+	UART_SendString(str);
+	UART_SendString("\r\n");
+}
+
+static void UART_SendERROR(const char *str)
+{
+	UART_SendString("ERROR, ");
+	UART_SendString(str);
+	UART_SendString("\r\n");
 }
 /* USER CODE END 0 */
 
@@ -342,7 +363,7 @@ int main(void)
   BSP_LED_On(LED_RED);
 
   // UART_SendString("Hello World!\r\n");
-  UART_SendString("ICM-20948 init start...\r\n");
+  UART_SendINFO("ICM-20948 init start...");
 
   HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
   HAL_Delay(10);
@@ -350,19 +371,15 @@ int main(void)
   imu_ok = ICM20948_Init_Minimal();
   if (imu_ok == 1U)
   {
-    UART_SendString("ICM-20948 init SUCCESS\r\n");
+	UART_SendINFO("ICM-20948 init SUCCESS");
     ICM20948_Config_Basic();
+    BSP_LED_Toggle(LED_GREEN);
+    BSP_LED_Toggle(LED_BLUE);
   }
   else
   {
-    UART_SendString("ICM-20948 init FAIL\r\n");
+    UART_SendERROR("ICM-20948 init FAIL");
   }
-
-  imu_prev_tick = HAL_GetTick();
-
-  BSP_LED_Toggle(LED_GREEN);
-  BSP_LED_Toggle(LED_BLUE);
-  BSP_LED_Toggle(LED_RED);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN BSP */
@@ -373,38 +390,54 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-//    /* -- Sample board code for User push-button in interrupt mode ---- */
-//    if (BspButtonState == BUTTON_PRESSED)
-//    {
-//      /* Update button state */
-//      BspButtonState = BUTTON_RELEASED;
-//      /* -- Sample board code to toggle leds ---- */
-//      BSP_LED_Toggle(LED_GREEN);
-//      BSP_LED_Toggle(LED_BLUE);
-//      BSP_LED_Toggle(LED_RED);
-//    }
+    if ((imu_ok == 1U) &&
+        (imu_collecting == 0U) &&
+        (BspButtonState == BUTTON_PRESSED))
+    {
+      BspButtonState = BUTTON_RELEASED;
 
-	// TODO: Press button -> data collect start for n seconds
-    if ((imu_ok == 1U) && ((HAL_GetTick() - imu_prev_tick) >= IMU_PRINT_PERIOD_MS))
-	{
-	  imu_prev_tick = HAL_GetTick();
+      imu_collecting = 1U;
+      imu_sample_idx = 0U;
+      imu_sample_tick = HAL_GetTick();
 
-	  if (ICM20948_ReadRaw(&imu_raw) == 1U)
-	  {
-		BSP_LED_Toggle(LED_GREEN);
-		UART_SendIMU_Raw(&imu_raw);
-		HAL_Delay(100);
-		BSP_LED_Toggle(LED_GREEN);
-	  }
-	  // TODO: Incorrect IMU data -> Toggle RED LED
-	  else
-	  {
-		BSP_LED_Toggle(LED_RED);
-		HAL_Delay(100);
-		BSP_LED_Toggle(LED_RED);
-	  }
-	}
-    /* USER CODE END WHILE */
+      BSP_LED_Off(LED_RED);
+      BSP_LED_On(LED_GREEN);
+
+      UART_SendINFO("START, Data collection");
+    }
+
+    if (imu_collecting == 1U)
+    {
+      if ((HAL_GetTick() - imu_sample_tick) >= IMU_SAMPLE_PERIOD_MS)
+      {
+        imu_sample_tick += IMU_SAMPLE_PERIOD_MS;
+
+        if (ICM20948_ReadRaw(&imu_raw) == 1U)
+        {
+          UART_SendIMU_DATA(imu_sample_idx, &imu_raw);
+          imu_sample_idx++;
+
+          if (imu_sample_idx >= IMU_SAMPLE_COUNT)
+          {
+            imu_collecting = 0U;
+
+            BSP_LED_Off(LED_GREEN);
+            BSP_LED_On(LED_RED);
+
+            UART_SendINFO("END, Data collection");
+          }
+        }
+        else
+        {
+          imu_collecting = 0U;
+
+          BSP_LED_Off(LED_GREEN);
+          BSP_LED_On(LED_RED);
+
+          UART_SendERROR("IMU read FAIL");
+        }
+      }
+    }
   }
   /* USER CODE BEGIN 3 */
 
