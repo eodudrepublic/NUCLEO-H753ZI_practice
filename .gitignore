@@ -1,0 +1,7 @@
+# Build outputs
+Debug/
+Release/
+
+# STM32CubeIDE / Eclipse metadata
+.metadata/
+.settings/
