@@ -12,24 +12,28 @@ EXPECTED_SAMPLE_COUNT = 20
 
 
 def get_next_id(csv_path: Path) -> int:
-    if not csv_path.exists():
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
         return 0
 
-    last_id = None
+    last_valid_row = 0
 
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
-        header = next(reader, None)
+
+        # 헤더 스킵
+        next(reader, None)
 
         for row in reader:
             if not row:
                 continue
-            try:
-                last_id = int(row[0])
-            except (ValueError, IndexError):
-                continue
+            last_valid_row = row
 
-    if last_id is None:
+    if last_valid_row is None:
+        return 0
+
+    try:
+        last_id = int(last_valid_row[0])
+    except (ValueError, IndexError):
         return 0
 
     return last_id + 1
@@ -144,7 +148,6 @@ def main():
                         collected_count = 0
 
                     else:
-                        # 기타 INFO는 무시
                         pass
 
                     continue
@@ -178,7 +181,6 @@ def main():
                     collected_count += 1
                     continue
 
-                # 기타 메시지는 무시
                 print(f"[WARN] Unknown line type: {parts}")
 
     except KeyboardInterrupt:
