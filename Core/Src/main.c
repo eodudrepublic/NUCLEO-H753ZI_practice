@@ -26,6 +26,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
+#include "norm_params.h"
+#include "threshold_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,8 +45,9 @@ typedef struct
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IMU_SAMPLE_PERIOD_MS        100U
-#define IMU_SAMPLE_COUNT            20U
+#define IMU_SAMPLE_PERIOD_MS        100U    /* 0.1s interval */
+#define IMU_WINDOW_SIZE             20U     /* Window size (2 seconds) */
+#define IMU_NUM_FEATURES            6U      /* ax, ay, az, gx, gy, gz */
 
 #define IMU_CS_PORT                 GPIOA
 #define IMU_CS_PIN                  GPIO_PIN_4
@@ -75,10 +78,18 @@ __IO uint32_t BspButtonState = BUTTON_RELEASED;
 
 /* USER CODE BEGIN PV */
 uint8_t imu_ok = 0U;
-uint8_t imu_collecting = 0U;
-uint32_t imu_sample_tick = 0U;
-uint32_t imu_sample_idx = 0U;
-ICM20948_Raw_t imu_raw;
+
+/* ── Ring buffer ── */
+static float ring_buf[IMU_WINDOW_SIZE][IMU_NUM_FEATURES];
+static uint16_t ring_write_idx = 0U;
+static uint32_t total_samples = 0U;
+
+/* ── Timing ── */
+static uint32_t sample_tick = 0U;
+
+/* ── Inference I/O buffers ── */
+static float ai_in_buf[IMU_WINDOW_SIZE * IMU_NUM_FEATURES];
+static float ai_out_buf[IMU_WINDOW_SIZE * IMU_NUM_FEATURES];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -89,6 +100,9 @@ void UART_SendString(const char *str);
 
 static void UART_SendChar(char c);
 static void UART_SendInt(int32_t value);
+static void UART_SendFloat(float value);
+static void UART_SendINFO(const char *str);
+static void UART_SendERROR(const char *str);
 
 static void IMU_CS_Low(void);
 static void IMU_CS_High(void);
@@ -100,13 +114,19 @@ static void ICM20948_SelectBank(uint8_t bank);
 static uint8_t ICM20948_Init_Minimal(void);
 static uint8_t ICM20948_Config_Basic(void);
 static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw);
-static void UART_SendIMU_DATA(uint32_t sample_idx, const ICM20948_Raw_t *raw);
-static void UART_SendINFO(const char *str);
-static void UART_SendERROR(const char *str);
+
+static void Normalize_Sample(const ICM20948_Raw_t *raw, float out[IMU_NUM_FEATURES]);
+
+/*/* Inference function defined in app_x-cube-ai.c */
+extern int AI_Run_Model(const float *in_data, float *out_data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* ================================================================
+ *  UART Helper Functions
+ * ================================================================ */
 void UART_SendString(const char *str)
 {
   HAL_UART_Transmit(&huart3, (uint8_t *)str, (uint16_t)strlen(str), HAL_MAX_DELAY);
@@ -145,6 +165,43 @@ static void UART_SendInt(int32_t value)
   }
 }
 
+static void UART_SendFloat(float value)
+{
+  if (value < 0.0f)
+  {
+    UART_SendChar('-');
+    value = -value;
+  }
+  uint32_t int_part = (uint32_t)value;
+  UART_SendInt((int32_t)int_part);
+  UART_SendChar('.');
+  float frac = value - (float)int_part;
+  for (int i = 0; i < 8; i++)
+  {
+    frac *= 10.0f;
+    uint8_t digit = (uint8_t)frac;
+    UART_SendChar('0' + digit);
+    frac -= (float)digit;
+  }
+}
+
+static void UART_SendINFO(const char *str)
+{
+  UART_SendString("INFO, ");
+  UART_SendString(str);
+  UART_SendString("\r\n");
+}
+
+static void UART_SendERROR(const char *str)
+{
+  UART_SendString("ERROR, ");
+  UART_SendString(str);
+  UART_SendString("\r\n");
+}
+
+/* ================================================================
+ *  ICM-20948 SPI Driver (unchanged)
+ * ================================================================ */
 static void IMU_CS_Low(void)
 {
   HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_RESET);
@@ -280,39 +337,25 @@ static uint8_t ICM20948_ReadRaw(ICM20948_Raw_t *raw)
   return 1U;
 }
 
-static void UART_SendIMU_DATA(uint32_t sample_idx, const ICM20948_Raw_t *raw)
+/* ================================================================
+ *  Normalization Function
+ * ================================================================ */
+static void Normalize_Sample(const ICM20948_Raw_t *raw, float out[IMU_NUM_FEATURES])
 {
-  UART_SendString("DATA, ");
-  UART_SendInt((int32_t)sample_idx);
-  UART_SendString(", ");
-  UART_SendInt(raw->ax);
-  UART_SendString(", ");
-  UART_SendInt(raw->ay);
-  UART_SendString(", ");
-  UART_SendInt(raw->az);
+  int16_t vals[IMU_NUM_FEATURES];
+  vals[0] = raw->ax;
+  vals[1] = raw->ay;
+  vals[2] = raw->az;
+  vals[3] = raw->gx;
+  vals[4] = raw->gy;
+  vals[5] = raw->gz;
 
-  UART_SendString(", ");
-  UART_SendInt(raw->gx);
-  UART_SendString(", ");
-  UART_SendInt(raw->gy);
-  UART_SendString(", ");
-  UART_SendInt(raw->gz);
-  UART_SendString("\r\n");
+  for (uint8_t i = 0U; i < IMU_NUM_FEATURES; i++)
+{
+    out[i] = ((float)vals[i] - ch_min[i]) / ch_range[i];
+  }
 }
 
-static void UART_SendINFO(const char *str)
-{
-	UART_SendString("INFO, ");
-	UART_SendString(str);
-	UART_SendString("\r\n");
-}
-
-static void UART_SendERROR(const char *str)
-{
-	UART_SendString("ERROR, ");
-	UART_SendString(str);
-	UART_SendString("\r\n");
-}
 /* USER CODE END 0 */
 
 /**
@@ -359,20 +402,22 @@ int main(void)
   MX_SPI1_Init();
   MX_X_CUBE_AI_Init();
   /* USER CODE BEGIN 2 */
-  /* Initialize leds */
+
+  /* ── LED init ── */
   BSP_LED_Init(LED_GREEN);
   BSP_LED_Init(LED_BLUE);
   BSP_LED_Init(LED_RED);
 
-  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
+  /* ── Button init ── */
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
-  /* -- Sample board code to switch on leds ---- */
+  /* ── Default LED: GREEN ON (normal state) ── */
   BSP_LED_On(LED_GREEN);
-  BSP_LED_On(LED_BLUE);
-  BSP_LED_On(LED_RED);
+  BSP_LED_Off(LED_BLUE);
+  BSP_LED_Off(LED_RED);
 
   // UART_SendString("Hello World!\r\n");
+  /* ── ICM-20948 initialization ── */
   UART_SendINFO("ICM-20948 init start...");
 
   HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
@@ -383,22 +428,31 @@ int main(void)
   {
 	UART_SendINFO("ICM-20948 init SUCCESS");
     ICM20948_Config_Basic();
-    BSP_LED_Toggle(LED_GREEN);
-    BSP_LED_Toggle(LED_BLUE);
   }
   else
   {
     UART_SendERROR("ICM-20948 init FAIL");
+    BSP_LED_Off(LED_GREEN);
+    BSP_LED_On(LED_RED);
+    while (1) 
+    {
+        /* Halt on IMU failure */
+    }
   }
+
+  /* ── AI model init check ── */
+  /* Already initialized in MX_X_CUBE_AI_Init() */
+  UART_SendINFO("AI model ready (X-CUBE-AI 10.2.0)");
+
+  UART_SendString("INFO, Threshold=");
+  UART_SendFloat(AE_THRESHOLD);
+  UART_SendString("\r\n");
+
+  /* ── Start data collection ── */
+  UART_SendINFO("Buffering (20 samples)...");
+  sample_tick = HAL_GetTick();
+
   /* USER CODE END 2 */
-
-  /* Initialize leds */
-  BSP_LED_Init(LED_GREEN);
-  BSP_LED_Init(LED_BLUE);
-  BSP_LED_Init(LED_RED);
-
-  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
-  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
   /* USER CODE BEGIN BSP */
 
@@ -408,25 +462,99 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-    /* -- Sample board code for User push-button in interrupt mode ---- */
-    if (BspButtonState == BUTTON_PRESSED)
+    /* ── Collect IMU data every 0.1s (100ms) ── */
+    if ((HAL_GetTick() - sample_tick) >= IMU_SAMPLE_PERIOD_MS)
     {
-      /* Update button state */
-      BspButtonState = BUTTON_RELEASED;
-      /* -- Sample board code to toggle leds ---- */
-      BSP_LED_Toggle(LED_GREEN);
-      BSP_LED_Toggle(LED_BLUE);
-      BSP_LED_Toggle(LED_RED);
+      sample_tick += IMU_SAMPLE_PERIOD_MS;
 
-      /* ..... Perform your action ..... */
+      /* (1) Read IMU */
+      ICM20948_Raw_t raw;
+      if (ICM20948_ReadRaw(&raw) != 1U)
+    {
+        UART_SendERROR("IMU read FAIL");
+        BSP_LED_Off(LED_GREEN);
+        BSP_LED_On(LED_RED);
+        continue;
+      }
+
+      /* (2) Normalize and store in ring buffer */
+      Normalize_Sample(&raw, ring_buf[ring_write_idx]);
+      ring_write_idx = (ring_write_idx + 1U) % IMU_WINDOW_SIZE;
+      total_samples++;
+
+      /* (3) Buffering (before first 20 samples) */
+      if (total_samples < IMU_WINDOW_SIZE)
+      {
+      BSP_LED_Toggle(LED_GREEN);
+        continue;
+      }
+
+      /* (4) First inference notification (once) */
+      if (total_samples == IMU_WINDOW_SIZE)
+      {
+        UART_SendINFO("Inference started");
+        BSP_LED_On(LED_GREEN);
+      }
+
+      /* ── (5) Ring buffer -> input array (time-ordered) ── */
+      for (uint16_t t = 0U; t < IMU_WINDOW_SIZE; t++)
+      {
+        uint16_t src = (ring_write_idx + t) % IMU_WINDOW_SIZE;
+        for (uint16_t c = 0U; c < IMU_NUM_FEATURES; c++)
+        {
+          ai_in_buf[t * IMU_NUM_FEATURES + c] = ring_buf[src][c];
+        }
+      }
+
+      /* ── (6) Run inference ── */
+      int res = AI_Run_Model(ai_in_buf, ai_out_buf);
+
+      if (res != 0)
+      {
+        UART_SendERROR("AI run FAIL");
+        BSP_LED_Off(LED_GREEN);
+        BSP_LED_On(LED_RED);
+        continue;
+      }
+
+      /* ── (7) Compute reconstruction MSE ── */
+      float mse = 0.0f;
+      uint16_t total_elems = IMU_WINDOW_SIZE * IMU_NUM_FEATURES;  /* 120 */
+      for (uint16_t i = 0U; i < total_elems; i++)
+      {
+        float diff = ai_in_buf[i] - ai_out_buf[i];
+        mse += diff * diff;
+      }
+      mse /= (float)total_elems;
+
+      /* ── (8) Anomaly detection + LED control ── */
+      if (mse > AE_THRESHOLD)
+      {
+        /* Anomaly detected -> LED_RED ON */
+        BSP_LED_Off(LED_GREEN);
+        BSP_LED_On(LED_RED);
+
+        UART_SendString("[ANOMALY] MSE=");
+        UART_SendFloat(mse);
+        UART_SendString("\r\n");
+      }
+      else
+      {
+        /* Normal -> LED_GREEN ON */
+        BSP_LED_On(LED_GREEN);
+        BSP_LED_Off(LED_RED);
+
+        UART_SendString("[NORMAL ] MSE=");
+        UART_SendFloat(mse);
+        UART_SendString("\r\n");
+      }
     }
     /* USER CODE END WHILE */
 
+  /* USER CODE BEGIN 3 */
   MX_X_CUBE_AI_Process();
-    /* USER CODE BEGIN 3 */
-
   /* USER CODE END 3 */
+  }
 }
 
 /**

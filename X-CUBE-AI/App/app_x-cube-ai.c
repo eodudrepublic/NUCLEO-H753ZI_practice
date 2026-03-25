@@ -169,27 +169,32 @@ static int ai_run(void)
 }
 
 /* USER CODE BEGIN 2 */
-int acquire_and_process_data(ai_i8* data[])
+/**
+ * @brief  Public AI inference function callable from main.c
+ * @param  in_data   Input float array (20*6 = 120 elements)
+ * @param  out_data  Output float array (20*6 = 120 elements)
+ * @retval 0=success, -1=failure
+ *
+ * Usage:
+ *   float input[120], output[120];
+ *   // Fill input with normalized data...
+ *   AI_Run_Model(input, output);
+ *   // Compare output with input to compute MSE
+ */
+int AI_Run_Model(const float *in_data, float *out_data)
 {
-  /* fill the inputs of the c-model
-  for (int idx=0; idx < AI_AE_MODEL_IN_NUM; idx++ )
+  /* Copy input data to AI input buffer */
+  memcpy(data_ins[0], in_data, AI_AE_MODEL_IN_1_SIZE_BYTES);
+
+  /* Run inference */
+  if (ai_run() != 0)
   {
-      data[idx] = ....
+    return -1;
   }
 
-  */
-  return 0;
-}
+  /* Copy AI output buffer to output data */
+  memcpy(out_data, data_outs[0], AI_AE_MODEL_OUT_1_SIZE_BYTES);
 
-int post_process(ai_i8* data[])
-{
-  /* process the predictions
-  for (int idx=0; idx < AI_AE_MODEL_OUT_NUM; idx++ )
-  {
-      data[idx] = ....
-  }
-
-  */
   return 0;
 }
 /* USER CODE END 2 */
@@ -199,7 +204,7 @@ int post_process(ai_i8* data[])
 void MX_X_CUBE_AI_Init(void)
 {
     /* USER CODE BEGIN 5 */
-  printf("\r\nTEMPLATE - initialization\r\n");
+  // printf("\r\nTEMPLATE - initialization\r\n");
 
   ai_boostrap(data_activations0);
     /* USER CODE END 5 */
@@ -207,30 +212,17 @@ void MX_X_CUBE_AI_Init(void)
 
 void MX_X_CUBE_AI_Process(void)
 {
-    /* USER CODE BEGIN 6 */
-  int res = -1;
+  /* USER CODE BEGIN 6 */
 
-  printf("TEMPLATE - run - main loop\r\n");
+  /*
+   * Removed the default template infinite loop.
+   * Inference is performed by calling AI_Run_Model() directly from main.c.
+   * This function is called by auto-generated code inside the while(1) loop,
+   * but does nothing and returns immediately.
+   */
+  return;
 
-  if (ae_model) {
-
-    do {
-      /* 1 - acquire and pre-process input data */
-      res = acquire_and_process_data(data_ins);
-      /* 2 - process the data - call inference engine */
-      if (res == 0)
-        res = ai_run();
-      /* 3- post-process the predictions */
-      if (res == 0)
-        res = post_process(data_outs);
-    } while (res==0);
-  }
-
-  if (res) {
-    ai_error err = {AI_ERROR_INVALID_STATE, AI_ERROR_CODE_NETWORK};
-    ai_log_err(err, "Process has FAILED");
-  }
-    /* USER CODE END 6 */
+  /* USER CODE END 6 */
 }
 #ifdef __cplusplus
 }
