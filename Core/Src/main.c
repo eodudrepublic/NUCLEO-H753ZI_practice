@@ -21,6 +21,7 @@
 #include "spi.h"
 #include "usart.h"
 #include "gpio.h"
+#include "app_x-cube-ai.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -325,6 +326,14 @@ int main(void)
 
   /* USER CODE END 1 */
 
+  /* Enable the CPU Cache */
+
+  /* Enable I-Cache---------------------------------------------------------*/
+  SCB_EnableICache();
+
+  /* Enable D-Cache---------------------------------------------------------*/
+  SCB_EnableDCache();
+
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -348,6 +357,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_SPI1_Init();
+  MX_X_CUBE_AI_Init();
   /* USER CODE BEGIN 2 */
   /* Initialize leds */
   BSP_LED_Init(LED_GREEN);
@@ -382,6 +392,14 @@ int main(void)
   }
   /* USER CODE END 2 */
 
+  /* Initialize leds */
+  BSP_LED_Init(LED_GREEN);
+  BSP_LED_Init(LED_BLUE);
+  BSP_LED_Init(LED_RED);
+
+  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
+  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
+
   /* USER CODE BEGIN BSP */
 
   /* USER CODE END BSP */
@@ -390,56 +408,23 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if ((imu_ok == 1U) &&
-        (imu_collecting == 0U) &&
-        (BspButtonState == BUTTON_PRESSED))
+
+    /* -- Sample board code for User push-button in interrupt mode ---- */
+    if (BspButtonState == BUTTON_PRESSED)
     {
+      /* Update button state */
       BspButtonState = BUTTON_RELEASED;
+      /* -- Sample board code to toggle leds ---- */
+      BSP_LED_Toggle(LED_GREEN);
+      BSP_LED_Toggle(LED_BLUE);
+      BSP_LED_Toggle(LED_RED);
 
-      imu_collecting = 1U;
-      imu_sample_idx = 0U;
-      imu_sample_tick = HAL_GetTick();
-
-      BSP_LED_Off(LED_RED);
-      BSP_LED_On(LED_GREEN);
-
-      UART_SendINFO("START, Data collection");
+      /* ..... Perform your action ..... */
     }
+    /* USER CODE END WHILE */
 
-    if (imu_collecting == 1U)
-    {
-      if ((HAL_GetTick() - imu_sample_tick) >= IMU_SAMPLE_PERIOD_MS)
-      {
-        imu_sample_tick += IMU_SAMPLE_PERIOD_MS;
-
-        if (ICM20948_ReadRaw(&imu_raw) == 1U)
-        {
-          UART_SendIMU_DATA(imu_sample_idx, &imu_raw);
-          imu_sample_idx++;
-
-          if (imu_sample_idx >= IMU_SAMPLE_COUNT)
-          {
-            imu_collecting = 0U;
-
-            BSP_LED_Off(LED_GREEN);
-            BSP_LED_On(LED_RED);
-
-            UART_SendINFO("END, Data collection");
-          }
-        }
-        else
-        {
-          imu_collecting = 0U;
-
-          BSP_LED_Off(LED_GREEN);
-          BSP_LED_On(LED_RED);
-
-          UART_SendERROR("IMU read FAIL");
-        }
-      }
-    }
-  }
-  /* USER CODE BEGIN 3 */
+  MX_X_CUBE_AI_Process();
+    /* USER CODE BEGIN 3 */
 
   /* USER CODE END 3 */
 }

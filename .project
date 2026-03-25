@@ -31,6 +31,11 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>Doc/ae_model_generate_report.txt</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/X-CUBE-AI/App/ae_model_generate_report.txt</locationURI>
+		</link>
+		<link>
 			<name>Drivers/STM32H7xx_HAL_Driver/stm32h7xx_hal.c</name>
 			<type>1</type>
 			<location>C:/Users/ESLAB/STM32Cube/Repository/STM32Cube_FW_H7_V1.12.1/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c</location>
@@ -154,6 +159,21 @@
 			<name>Drivers/BSP/STM32H7xx_Nucleo/stm32h7xx_nucleo.c</name>
 			<type>1</type>
 			<location>C:/Users/ESLAB/STM32Cube/Repository/STM32Cube_FW_H7_V1.12.1/Drivers/BSP/STM32H7xx_Nucleo/stm32h7xx_nucleo.c</location>
+		</link>
+		<link>
+			<name>Application/User/X-CUBE-AI/App/ae_model.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/X-CUBE-AI/App/ae_model.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/X-CUBE-AI/App/ae_model_data.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/X-CUBE-AI/App/ae_model_data.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/X-CUBE-AI/App/ae_model_data_params.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/X-CUBE-AI/App/ae_model_data_params.c</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>
