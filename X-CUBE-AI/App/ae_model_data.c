@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    ae_model_data.c
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-03-25T21:01:45+0900
+  * @date    2026-03-26T18:16:38+0900
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * @attention
@@ -21,13 +21,13 @@
 AI_API_DECLARE_BEGIN
 ai_buffer g_ae_model_data_map_activations[AI_AE_MODEL_DATA_ACTIVATIONS_COUNT] = {
   AI_BUFFER_INIT(AI_FLAG_NONE,  AI_BUFFER_FORMAT_U8,
-    AI_BUFFER_SHAPE_INIT(AI_SHAPE_BCWH, 4, 1, 2112, 1, 1),
-    2112, NULL, NULL),    /* heap_overlay_pool */
+    AI_BUFFER_SHAPE_INIT(AI_SHAPE_BCWH, 4, 1, 1152, 1, 1),
+    1152, NULL, NULL),    /* heap_overlay_pool */
   };
 ai_buffer g_ae_model_data_map_weights[AI_AE_MODEL_DATA_WEIGHTS_COUNT] = {
   AI_BUFFER_INIT(AI_FLAG_NONE,  AI_BUFFER_FORMAT_U8,
-    AI_BUFFER_SHAPE_INIT(AI_SHAPE_BCWH, 4, 1, 26744, 1, 1),
-    26744, NULL, s_ae_model_weights_array_u64),   /* weights_array */
+    AI_BUFFER_SHAPE_INIT(AI_SHAPE_BCWH, 4, 1, 16184, 1, 1),
+    16184, NULL, s_ae_model_weights_array_u64),   /* weights_array */
   };
 
 

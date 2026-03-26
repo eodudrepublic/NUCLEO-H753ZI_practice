@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    ae_model.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-03-25T21:01:45+0900
+  * @date    2026-03-26T18:16:38+0900
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * @attention
@@ -44,10 +44,10 @@ AI_DEPRECATED
   AI_AE_MODEL_IN_1_SIZE_BYTES, \
 }
 #define AI_AE_MODEL_IN_1_FORMAT      (AI_BUFFER_FORMAT_FLOAT)
-#define AI_AE_MODEL_IN_1_HEIGHT      (20)
+#define AI_AE_MODEL_IN_1_HEIGHT      (10)
 #define AI_AE_MODEL_IN_1_CHANNEL     (6)
-#define AI_AE_MODEL_IN_1_SIZE        (120)
-#define AI_AE_MODEL_IN_1_SIZE_BYTES  (480)
+#define AI_AE_MODEL_IN_1_SIZE        (60)
+#define AI_AE_MODEL_IN_1_SIZE_BYTES  (240)
 
 /******************************************************************************/
 #define AI_AE_MODEL_OUT_NUM       (1)
@@ -64,10 +64,10 @@ AI_DEPRECATED
 }
 #define AI_AE_MODEL_OUT_1_FORMAT      (AI_BUFFER_FORMAT_FLOAT)
 #define AI_AE_MODEL_OUT_1_HEIGHT      (1)
-#define AI_AE_MODEL_OUT_1_WIDTH       (20)
+#define AI_AE_MODEL_OUT_1_WIDTH       (10)
 #define AI_AE_MODEL_OUT_1_CHANNEL     (6)
-#define AI_AE_MODEL_OUT_1_SIZE        (120)
-#define AI_AE_MODEL_OUT_1_SIZE_BYTES  (480)
+#define AI_AE_MODEL_OUT_1_SIZE        (60)
+#define AI_AE_MODEL_OUT_1_SIZE_BYTES  (240)
 
 /******************************************************************************/
 #define AI_AE_MODEL_N_NODES (12)

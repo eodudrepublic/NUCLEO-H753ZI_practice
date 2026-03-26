@@ -46,7 +46,7 @@ typedef struct
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define IMU_SAMPLE_PERIOD_MS        100U    /* 0.1s interval */
-#define IMU_WINDOW_SIZE             20U     /* Window size (2 seconds) */
+#define IMU_WINDOW_SIZE             10U     /* Window size (1 seconds) */
 #define IMU_NUM_FEATURES            6U      /* ax, ay, az, gx, gy, gz */
 
 #define IMU_CS_PORT                 GPIOA
@@ -434,7 +434,7 @@ int main(void)
     UART_SendERROR("ICM-20948 init FAIL");
     BSP_LED_Off(LED_GREEN);
     BSP_LED_On(LED_RED);
-    while (1) 
+    while (1)
     {
         /* Halt on IMU failure */
     }
@@ -449,7 +449,7 @@ int main(void)
   UART_SendString("\r\n");
 
   /* ── Start data collection ── */
-  UART_SendINFO("Buffering (20 samples)...");
+  UART_SendINFO("Buffering (10 samples)...");
   sample_tick = HAL_GetTick();
 
   /* USER CODE END 2 */
@@ -482,7 +482,7 @@ int main(void)
       ring_write_idx = (ring_write_idx + 1U) % IMU_WINDOW_SIZE;
       total_samples++;
 
-      /* (3) Buffering (before first 20 samples) */
+      /* (3) Buffering (before first 10 samples) */
       if (total_samples < IMU_WINDOW_SIZE)
       {
       BSP_LED_Toggle(LED_GREEN);
@@ -519,7 +519,7 @@ int main(void)
 
       /* ── (7) Compute reconstruction MSE ── */
       float mse = 0.0f;
-      uint16_t total_elems = IMU_WINDOW_SIZE * IMU_NUM_FEATURES;  /* 120 */
+      uint16_t total_elems = IMU_WINDOW_SIZE * IMU_NUM_FEATURES;  /* 60 */
       for (uint16_t i = 0U; i < total_elems; i++)
       {
         float diff = ai_in_buf[i] - ai_out_buf[i];

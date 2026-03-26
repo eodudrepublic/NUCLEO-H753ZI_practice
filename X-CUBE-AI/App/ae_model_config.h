@@ -3,7 +3,7 @@
   ******************************************************************************
   * @file    ae_model_config.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-03-25T21:01:45+0900
+  * @date    2026-03-26T18:16:38+0900
   * @brief   AI Tool Automatic Code Generator for Custom Layers Implementation
   ******************************************************************************
   * @attention

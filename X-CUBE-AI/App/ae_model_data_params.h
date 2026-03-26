@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    ae_model_data_params.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-03-25T21:01:45+0900
+  * @date    2026-03-26T18:16:38+0900
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * Copyright (c) 2026 STMicroelectronics.
@@ -28,18 +28,18 @@
 
 
 #define AI_AE_MODEL_DATA_ACTIVATIONS_SIZES \
-  { 2112, }
-#define AI_AE_MODEL_DATA_ACTIVATIONS_SIZE     (2112)
+  { 1152, }
+#define AI_AE_MODEL_DATA_ACTIVATIONS_SIZE     (1152)
 #define AI_AE_MODEL_DATA_ACTIVATIONS_COUNT    (1)
-#define AI_AE_MODEL_DATA_ACTIVATION_1_SIZE    (2112)
+#define AI_AE_MODEL_DATA_ACTIVATION_1_SIZE    (1152)
 
 
 
 #define AI_AE_MODEL_DATA_WEIGHTS_SIZES \
-  { 26744, }
-#define AI_AE_MODEL_DATA_WEIGHTS_SIZE         (26744)
+  { 16184, }
+#define AI_AE_MODEL_DATA_WEIGHTS_SIZE         (16184)
 #define AI_AE_MODEL_DATA_WEIGHTS_COUNT        (1)
-#define AI_AE_MODEL_DATA_WEIGHT_1_SIZE        (26744)
+#define AI_AE_MODEL_DATA_WEIGHT_1_SIZE        (16184)
 
 
 

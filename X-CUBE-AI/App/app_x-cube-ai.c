@@ -212,7 +212,7 @@ void MX_X_CUBE_AI_Init(void)
 
 void MX_X_CUBE_AI_Process(void)
 {
-  /* USER CODE BEGIN 6 */
+    /* USER CODE BEGIN 6 */
 
   /*
    * Removed the default template infinite loop.
@@ -222,7 +222,7 @@ void MX_X_CUBE_AI_Process(void)
    */
   return;
 
-  /* USER CODE END 6 */
+    /* USER CODE END 6 */
 }
 #ifdef __cplusplus
 }
