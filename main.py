@@ -8,14 +8,15 @@ import serial
 PORT = "COM3"
 BAUD = 115200
 CSV_FILE = "imu_data.csv"
-EXPECTED_SAMPLE_COUNT = 20
+EXPECTED_SAMPLE_COUNT = 600
+SAMPLES_PER_ID = 10
 
 
 def get_next_id(csv_path: Path) -> int:
     if not csv_path.exists() or csv_path.stat().st_size == 0:
         return 0
 
-    last_valid_row = 0
+    last_valid_row = None
 
     with csv_path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -79,7 +80,7 @@ def main():
     ensure_csv_header(csv_path)
 
     next_id = get_next_id(csv_path)
-    current_id = None
+    base_id = None
     collecting = False
     collected_count = 0
 
@@ -129,22 +130,23 @@ def main():
                     if is_info_start(parts):
                         if collecting:
                             print("[WARN] START received while already collecting. Previous session will be discarded logically.")
-                        current_id = next_id
-                        next_id += 1
+                        base_id = next_id
                         collecting = True
                         collected_count = 0
-                        print(f"[INFO] Data collection started. ID = {current_id}")
+                        print(f"[INFO] Data collection started. base ID = {base_id}")
 
                     elif is_info_end(parts):
                         if collecting:
-                            print(f"[INFO] Data collection ended. ID = {current_id}, samples = {collected_count}")
+                            ids_used = (collected_count + SAMPLES_PER_ID - 1) // SAMPLES_PER_ID
+                            next_id = base_id + ids_used
+                            print(f"[INFO] Data collection ended. ID = {base_id}~{next_id - 1}, samples = {collected_count}")
                             if collected_count != EXPECTED_SAMPLE_COUNT:
                                 print(f"[WARN] Expected {EXPECTED_SAMPLE_COUNT} samples, but got {collected_count}.")
                         else:
                             print("[WARN] END received while not collecting.")
 
                         collecting = False
-                        current_id = None
+                        base_id = None
                         collected_count = 0
 
                     else:
@@ -154,7 +156,7 @@ def main():
 
                 # 3) DATA -> 데이터 저장
                 if msg_type == "DATA":
-                    if not collecting or current_id is None:
+                    if not collecting or base_id is None:
                         print("[WARN] DATA received outside collection state. Ignored.")
                         continue
 
@@ -165,7 +167,6 @@ def main():
                         continue
 
                     try:
-                        sample_idx = int(parts[1])
                         ax = int(parts[2])
                         ay = int(parts[3])
                         az = int(parts[4])
@@ -176,7 +177,11 @@ def main():
                         print(f"[WARN] DATA parse failed: {parts}")
                         continue
 
-                    writer.writerow([current_id, sample_idx, ax, ay, az, gx, gy, gz])
+                    # 10개 샘플마다 새 ID, sample_idx는 0~9로 리셋
+                    current_id = base_id + (collected_count // SAMPLES_PER_ID)
+                    local_sample_idx = collected_count % SAMPLES_PER_ID
+
+                    writer.writerow([current_id, local_sample_idx, ax, ay, az, gx, gy, gz])
                     f.flush()
                     collected_count += 1
                     continue
