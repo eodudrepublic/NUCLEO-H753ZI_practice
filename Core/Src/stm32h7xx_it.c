@@ -55,7 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_sai1_a;
+extern DMA_HandleTypeDef hdma_dfsdm1_flt0;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -206,7 +206,7 @@ void DMA1_Stream0_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Stream0_IRQn 0 */
 
   /* USER CODE END DMA1_Stream0_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_sai1_a);
+  HAL_DMA_IRQHandler(&hdma_dfsdm1_flt0);
   /* USER CODE BEGIN DMA1_Stream0_IRQn 1 */
 
   /* USER CODE END DMA1_Stream0_IRQn 1 */
