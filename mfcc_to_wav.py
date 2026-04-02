@@ -1,15 +1,18 @@
 """
-mfcc_to_wav.py — COM3 시리얼에서 MFCC 수신 → WAV 실시간 변환
+mfcc_to_wav.py — main.py로 저장한 MFCC 데이터셋(.npy)을 WAV로 복원
 
 사용법:
-    python mfcc_to_wav.py                     # 기본: COM3, 115200
-    python mfcc_to_wav.py --port COM5         # 포트 변경
-    python mfcc_to_wav.py --out_dir ./wavs    # 출력 폴더 변경
+    # 파일 경로 직접 지정
+    python mfcc_to_wav.py ./wake_word/hello/hello_0000.npy
 
-동작:
-    1) 시리얼에서 MFCC_START ~ MFCC_END 블록을 감지
-    2) Griffin-Lim으로 WAV 복원
-    3) 자동 번호 매겨서 저장 (rec_000.wav, rec_001.wav, ...)
+    # 파일 이름만 (--data_dir 내에서 자동 검색)
+    python mfcc_to_wav.py hello_0000.npy
+
+    # 라벨 폴더 전체 변환
+    python mfcc_to_wav.py ./wake_word/hello/
+
+    # 옵션
+    python mfcc_to_wav.py hello_0000.npy --out_dir ./wavs --iter 30
 """
 
 import sys
@@ -19,23 +22,20 @@ import struct
 from pathlib import Path
 
 import numpy as np
-import serial
 
 
 # ══════════════════════════════════════════════
 #  설정
 # ══════════════════════════════════════════════
-PORT = "COM3"
-BAUD = 115200
+DATASET_DIR = "./wake_word"
 OUT_DIR = "."
 GRIFFIN_LIM_ITER = 60
 
-# 펌웨어 기본값 (MFCC_START 헤더에서 덮어씀)
+# 펌웨어 기본값
 DEFAULT_SR = 16000
 DEFAULT_FFT = 1024
 DEFAULT_HOP = 512
 DEFAULT_MELS = 15
-DEFAULT_MFCC = 15
 MEL_FMIN_HZ = 20.0
 MEL_FMAX_HZ = 4000.0
 
@@ -114,6 +114,7 @@ def griffin_lim(magnitude, fft_size, hop_size, n_iter):
     rng = np.random.default_rng(42)
     phase = rng.uniform(-np.pi, np.pi, size=(n_frames, n_bins))
 
+    signal = 0
     for iteration in range(n_iter):
         complex_spec = magnitude * np.exp(1j * phase)
 
@@ -171,11 +172,23 @@ def save_wav(filepath, signal, sr):
         f.write(samples.tobytes())
 
 
-def mfcc_to_wav(mfcc_data, sr, fft_size, hop_size, n_mels, wav_path, n_iter):
-    """MFCC 행렬 → WAV 파일 변환 및 저장"""
-    print(f"  [1/4] Inverse DCT ({mfcc_data.shape[0]} frames, {mfcc_data.shape[1]} coeffs)...")
-    mel_log = inverse_dct2(mfcc_data, n_mels)
+def convert_npy_to_wav(
+    npy_path: Path,
+    wav_path: Path,
+    sr: int = DEFAULT_SR,
+    fft_size: int = DEFAULT_FFT,
+    hop_size: int = DEFAULT_HOP,
+    n_mels: int = DEFAULT_MELS,
+    n_iter: int = GRIFFIN_LIM_ITER,
+) -> None:
+    """단일 .npy 파일을 WAV로 변환"""
+    mfcc_data = np.load(npy_path).astype(np.float64)
+    n_frames, n_coeffs = mfcc_data.shape
 
+    print(f"  입력: {npy_path.name}  shape=({n_frames}, {n_coeffs})")
+
+    print(f"  [1/4] Inverse DCT...")
+    mel_log = inverse_dct2(mfcc_data, n_mels)
     mel_energy = np.exp(mel_log)
 
     print(f"  [2/4] Mel → power spectrogram...")
@@ -191,167 +204,141 @@ def mfcc_to_wav(mfcc_data, sr, fft_size, hop_size, n_mels, wav_path, n_iter):
     save_wav(str(wav_path), signal, sr)
 
     duration_ms = len(signal) * 1000 / sr
-    print(f"  완료! ({duration_ms:.0f}ms, {len(signal)} samples)")
+    print(f"  완료! ({duration_ms:.0f}ms, {len(signal)} samples)\n")
 
 
 # ══════════════════════════════════════════════
-#  시리얼 수신 + 파싱
+#  파일 검색
 # ══════════════════════════════════════════════
-def parse_line(line: str) -> list[str]:
-    return [part.strip() for part in line.split(",")]
+def find_npy_file(name_or_path: str, data_dir: str) -> Path:
+    """
+    경로 또는 파일 이름으로 .npy 파일을 찾습니다.
+
+    우선순위:
+        1) 그대로 경로로 존재하면 사용
+        2) data_dir 아래 전체를 재귀 검색
+    """
+    p = Path(name_or_path)
+
+    # 1) 직접 경로
+    if p.exists() and p.is_file():
+        return p
+
+    # 2) 확장자 없으면 .npy 붙여보기
+    if not p.suffix:
+        p_npy = p.with_suffix(".npy")
+        if p_npy.exists():
+            return p_npy
+
+    # 3) data_dir 아래 재귀 검색
+    search_name = p.name if p.suffix else p.name + ".npy"
+    data_root = Path(data_dir)
+    matches = list(data_root.rglob(search_name))
+
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        print(f"[WARN] '{search_name}' 이름의 파일이 여러 개 발견됨:")
+        for m in matches:
+            print(f"       {m}")
+        print(f"       첫 번째 파일을 사용합니다.")
+        return matches[0]
+
+    # 못 찾음
+    print(f"[ERROR] 파일을 찾을 수 없습니다: {name_or_path}")
+    print(f"        검색 위치: {data_root.resolve()}")
+    sys.exit(1)
 
 
+# ══════════════════════════════════════════════
+#  메인
+# ══════════════════════════════════════════════
 def main():
-    parser = argparse.ArgumentParser(description="COM 시리얼 MFCC → WAV 실시간 변환")
-    parser.add_argument("--port", default=PORT, help=f"시리얼 포트 (기본: {PORT})")
-    parser.add_argument("--baud", type=int, default=BAUD, help=f"Baud rate (기본: {BAUD})")
-    parser.add_argument("--out_dir", default=OUT_DIR, help=f"WAV 저장 폴더 (기본: {OUT_DIR})")
-    parser.add_argument("--iter", type=int, default=GRIFFIN_LIM_ITER,
-                        help=f"Griffin-Lim 반복 횟수 (기본: {GRIFFIN_LIM_ITER})")
+    parser = argparse.ArgumentParser(
+        description="MFCC 데이터셋(.npy) → WAV 변환",
+        epilog=(
+            "예시:\n"
+            "  python mfcc_to_wav.py hello_0000.npy\n"
+            "  python mfcc_to_wav.py ./wake_word/hello/hello_0000.npy\n"
+            "  python mfcc_to_wav.py ./wake_word/hello/   (폴더 전체 변환)\n"
+            "  python mfcc_to_wav.py hello_0000            (.npy 자동 추가)\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "input",
+        help=".npy 파일 경로, 파일 이름, 또는 폴더 경로 (폴더면 전체 변환)",
+    )
+    parser.add_argument(
+        "--data_dir", default=DATASET_DIR,
+        help=f"데이터셋 루트 폴더 (파일 이름 검색 시 사용, 기본: {DATASET_DIR})",
+    )
+    parser.add_argument(
+        "--out_dir", default=None,
+        help="WAV 출력 폴더 (기본: 입력 파일과 같은 폴더)",
+    )
+    parser.add_argument(
+        "--sr", type=int, default=DEFAULT_SR, help=f"Sample rate (기본: {DEFAULT_SR})",
+    )
+    parser.add_argument(
+        "--fft", type=int, default=DEFAULT_FFT, help=f"FFT size (기본: {DEFAULT_FFT})",
+    )
+    parser.add_argument(
+        "--hop", type=int, default=DEFAULT_HOP, help=f"Hop size (기본: {DEFAULT_HOP})",
+    )
+    parser.add_argument(
+        "--mels", type=int, default=DEFAULT_MELS, help=f"Mel filters (기본: {DEFAULT_MELS})",
+    )
+    parser.add_argument(
+        "--iter", type=int, default=GRIFFIN_LIM_ITER,
+        help=f"Griffin-Lim 반복 횟수 (기본: {GRIFFIN_LIM_ITER})",
+    )
     args = parser.parse_args()
 
-    gl_iter = args.iter
+    input_path = Path(args.input)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # ── 폴더가 입력된 경우: 내부 .npy 전체 변환 ──
+    if input_path.is_dir():
+        npy_files = sorted(input_path.glob("*.npy"))
+        if not npy_files:
+            print(f"[ERROR] 폴더에 .npy 파일이 없습니다: {input_path}")
+            sys.exit(1)
 
-    # 기존 파일 번호 이어서 매기기
-    existing = sorted(out_dir.glob("rec_*.wav"))
-    if existing:
-        last_num = int(existing[-1].stem.split("_")[1])
-        rec_counter = last_num + 1
+        out_dir = Path(args.out_dir) if args.out_dir else input_path
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"[INFO] 폴더 변환: {input_path} ({len(npy_files)}개)")
+        print(f"[INFO] WAV 출력 : {out_dir.resolve()}\n")
+
+        for npy_file in npy_files:
+            wav_name = npy_file.stem + ".wav"
+            wav_path = out_dir / wav_name
+            convert_npy_to_wav(
+                npy_file, wav_path,
+                sr=args.sr, fft_size=args.fft, hop_size=args.hop,
+                n_mels=args.mels, n_iter=args.iter,
+            )
+
+        print(f"[INFO] 전체 변환 완료: {len(npy_files)}개")
+        return
+
+    # ── 단일 파일 ──
+    npy_path = find_npy_file(args.input, args.data_dir)
+
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
     else:
-        rec_counter = 0
+        out_dir = npy_path.parent
 
-    # MFCC 수집 상태
-    collecting = False
-    mfcc_frames = []
-    cfg = {
-        "sr": DEFAULT_SR,
-        "fft": DEFAULT_FFT,
-        "hop": DEFAULT_HOP,
-        "mels": DEFAULT_MELS,
-        "mfcc": DEFAULT_MFCC,
-    }
+    wav_path = out_dir / (npy_path.stem + ".wav")
 
-    print(f"[INFO] 시리얼 포트  : {args.port} @ {args.baud}")
-    print(f"[INFO] WAV 저장 폴더: {out_dir.resolve()}")
-    print(f"[INFO] 다음 파일 번호: rec_{rec_counter:03d}.wav")
-    print(f"[INFO] Griffin-Lim  : {gl_iter} iterations")
-    print(f"[INFO] Ctrl+C로 종료")
-    print()
-
-    try:
-        ser = serial.Serial(args.port, args.baud, timeout=1)
-    except serial.SerialException as e:
-        print(f"[ERROR] 시리얼 포트 열기 실패: {e}")
-        sys.exit(1)
-
-    try:
-        while True:
-            try:
-                raw = ser.readline()
-            except serial.SerialException as e:
-                print(f"[ERROR] 시리얼 읽기 실패: {e}")
-                break
-
-            if not raw:
-                continue
-
-            line = raw.decode("utf-8", errors="ignore").strip()
-            if not line:
-                continue
-
-            parts = parse_line(line)
-            if not parts:
-                continue
-
-            msg_type = parts[0]
-
-            # ── CONFIG 파싱 ──
-            if msg_type == "CONFIG":
-                for pair in parts:
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        if k in cfg:
-                            cfg[k] = int(v)
-                print(f"[CONFIG] sr={cfg['sr']}, fft={cfg['fft']}, hop={cfg['hop']}, "
-                      f"mels={cfg['mels']}, mfcc={cfg['mfcc']}")
-
-            # ── INFO 메시지 ──
-            elif msg_type == "INFO":
-                info_msg = ",".join(parts[1:]) if len(parts) > 1 else ""
-                print(f"[INFO] {info_msg}")
-
-            # ── ERROR ──
-            elif msg_type == "ERROR":
-                err_msg = ",".join(parts[1:]) if len(parts) > 1 else ""
-                print(f"[ERROR] {err_msg}")
-
-            # ── REC_DONE ──
-            elif msg_type == "REC_DONE":
-                detail = ",".join(parts[1:]) if len(parts) > 1 else ""
-                print(f"[REC_DONE] {detail}")
-
-            # ── MFCC_START ──
-            elif msg_type == "MFCC_START":
-                collecting = True
-                mfcc_frames = []
-                if len(parts) >= 6:
-                    cfg["sr"] = int(parts[3])
-                    cfg["fft"] = int(parts[4])
-                    cfg["hop"] = int(parts[5])
-                    cfg["mfcc"] = int(parts[2])
-                print(f"[MFCC] 수집 시작 (예상 프레임: {parts[1] if len(parts) > 1 else '?'})")
-
-            # ── MFCC 프레임 데이터 ──
-            elif msg_type == "MFCC" and collecting:
-                try:
-                    coeffs = [float(x) for x in parts[2:]]
-                    mfcc_frames.append(coeffs)
-                except (ValueError, IndexError):
-                    print(f"[WARN] MFCC 파싱 실패: {line}")
-
-            # ── MFCC_END → 변환 시작 ──
-            elif msg_type == "MFCC_END":
-                if not collecting or not mfcc_frames:
-                    print("[WARN] MFCC_END 수신했으나 데이터 없음")
-                    collecting = False
-                    continue
-
-                collecting = False
-                mfcc_data = np.array(mfcc_frames, dtype=np.float64)
-                wav_path = out_dir / f"rec_{rec_counter:03d}.wav"
-
-                print(f"\n{'='*50}")
-                print(f"  변환 시작: rec_{rec_counter:03d}.wav")
-                print(f"  프레임: {mfcc_data.shape[0]}, 계수: {mfcc_data.shape[1]}")
-                print(f"  SR={cfg['sr']}, FFT={cfg['fft']}, HOP={cfg['hop']}, MEL={cfg['mels']}")
-                print(f"{'='*50}")
-
-                mfcc_to_wav(
-                    mfcc_data,
-                    sr=cfg["sr"],
-                    fft_size=cfg["fft"],
-                    hop_size=cfg["hop"],
-                    n_mels=cfg["mels"],
-                    wav_path=wav_path,
-                    n_iter=gl_iter,
-                )
-
-                rec_counter += 1
-                print(f"\n[INFO] 다음 녹음 대기중... (다음: rec_{rec_counter:03d}.wav)\n")
-
-            # ── 기타 ──
-            else:
-                if line:
-                    print(f"[>] {line}")
-
-    except KeyboardInterrupt:
-        print(f"\n[INFO] 종료됨. 총 {rec_counter}개 WAV 저장됨.")
-    finally:
-        ser.close()
-        print("[INFO] 시리얼 포트 닫힘.")
+    print(f"[INFO] 변환: {npy_path} → {wav_path}\n")
+    convert_npy_to_wav(
+        npy_path, wav_path,
+        sr=args.sr, fft_size=args.fft, hop_size=args.hop,
+        n_mels=args.mels, n_iter=args.iter,
+    )
 
 
 if __name__ == "__main__":
