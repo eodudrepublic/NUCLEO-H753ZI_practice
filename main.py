@@ -76,7 +76,7 @@ def is_info_end(parts: list[str]) -> bool:
 
 
 def main():
-    csv_path = Path(CSV_FILE)
+    csv_path = Path("imu") / Path(CSV_FILE)
     ensure_csv_header(csv_path)
 
     next_id = get_next_id(csv_path)
